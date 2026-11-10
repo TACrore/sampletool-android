@@ -1,0 +1,94 @@
+﻿name: Build APK
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  apk:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install system deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y git zip unzip openjdk-17-jdk \
+            autoconf automake libtool pkg-config zlib1g-dev \
+            libncurses-dev libtinfo5 cmake \
+            libffi-dev libssl-dev
+          python3 -m pip install --upgrade "pip<24.1"
+          python3 -m pip install buildozer cython
+
+      - name: Cache android debug keystore (stable signature)
+        uses: actions/cache@v4
+        with:
+          path: ~/.android
+          key: android-debug-keystore-v1
+
+      - name: Cache buildozer
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.buildozer
+            .buildozer
+          key: buildozer-${{ hashFiles('buildozer.spec') }}
+
+      - name: Force python3 -> 3.11 for p4a venv
+        run: |
+          sudo ln -sf "$(command -v python3)" /usr/local/bin/python3
+          which -a python3
+          python3 -V
+
+      - name: Pre-clone p4a and mirror openssl source
+        run: |
+          git clone --depth 1 https://github.com/kivy/python-for-android "$HOME/p4a"
+          sed -i "s#https://www.openssl.org/source/openssl-{version}.tar.gz#https://ghproxy.net/https://github.com/openssl/openssl/releases/download/openssl-{version}/openssl-{version}.tar.gz#" \
+            "$HOME/p4a/pythonforandroid/recipes/openssl/__init__.py"
+          grep -rl "https://github.com/" "$HOME/p4a/pythonforandroid/recipes" | while read -r f; do
+            sed -i '/ghproxy\.net/! s#https://github.com/\([^/]*/[^/]*\)/releases/download/#https://ghproxy.net/https://github.com/\1/releases/download/#g' "$f"
+          done
+          grep -rl "md5sum" "$HOME/p4a/pythonforandroid/recipes" | while read -r f; do
+            sed -i "/md5sum/d" "$f"
+          done
+          grep -n "openssl.org\|ghproxy" "$HOME/p4a/pythonforandroid/recipes/openssl/__init__.py" | head -5
+      - name: Build debug APK (retry x3)
+        run: |
+          export PATH=$PATH:~/.local/bin
+          export JAVA_HOME="${JAVA_HOME_17_X64:-/usr/lib/jvm/temurin-17-jdk-amd64}"
+          echo "JAVA_HOME=$JAVA_HOME"
+          "$JAVA_HOME/bin/java" -version 2>&1 | head -2
+          for i in 1 2 3; do
+            echo "=== buildozer attempt $i ==="
+            find .buildozer -name "*.tar.gz" -size -200k -delete 2>/dev/null || true
+            find .buildozer -name ".mark-*" -delete 2>/dev/null || true
+            if buildozer -v android debug; then
+              echo "attempt $i OK"
+              break
+            fi
+            echo "attempt $i failed, retrying"
+            sleep 15
+          done
+          ls -l bin/ || true
+          test -n "$(ls bin/*.apk 2>/dev/null)"
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: sampletool-apk
+          path: bin/*.apk
+          if-no-files-found: error
+
+
+
+
+
+
+
+
+
