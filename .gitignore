@@ -1,0 +1,7 @@
+bin/
+.buildozer/
+data/
+__pycache__/
+crash.log
+*.pyc
+token.json
