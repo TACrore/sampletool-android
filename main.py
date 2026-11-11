@@ -470,11 +470,11 @@ class DetailScreen(Screen):
                 b.bind(on_release=lambda *_, idx=i: self.toggle(idx))
                 self.grid.add_widget(b)
 
-        bg(lambda: data.progress_get(fig), done)
+        bg(lambda: data.progress_get(fig, self.item.get("names")), done)
 
     def toggle(self, i):
         def work():
-            return data.toggle_step(self.item["fig"], i)
+            return data.toggle_step(self.item["fig"], i, self.item.get("names"))
 
         def done(res, err):
             if err:
