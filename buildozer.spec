@@ -2,8 +2,9 @@
 title = 样品查询管理工具
 package.name = sampletool
 package.domain = cn.wzshenyi
-version = 1.3.7
+version = 1.3.8
 icon.filename = icon.png
+presplash.filename = presplash.png
 source.dir = .
 source.include_exts = py,png,jpg,jpeg,ttf,json
 source.exclude_dirs = bin,.buildozer,__pycache__,data,.github
