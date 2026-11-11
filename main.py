@@ -700,7 +700,7 @@ class EditScreen(Screen):
             return
 
         def work():
-            return data.update_sample(self.item["row"], changes)
+            return data.update_sample(self.item["row"], changes, self.item.get("fig", ""))
 
         def done(res, err):
             if err:
