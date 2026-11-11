@@ -188,23 +188,35 @@ def _s(v):
     return str(v).strip()
 
 
-def load_samples(rows=15000):
-    """样品登记列表（最新在前）。"""
-    r = _api("GET", "/open-apis/sheets/v2/spreadsheets/%s/values/%s!A1:L%d"
-             % (SPREADSHEET, SHEET_SAMPLE, rows))
-    vals = ((r.get("data") or {}).get("valueRange") or {}).get("values") or []
+def _values(sheet_id, start, end, last_col="L"):
+    r = _api("GET", "/open-apis/sheets/v2/spreadsheets/%s/values/%s!A%d:%s%d"
+             % (SPREADSHEET, sheet_id, start, last_col, end))
+    return ((r.get("data") or {}).get("valueRange") or {}).get("values") or []
+
+
+def load_samples(rows=20000, step=2000):
+    """样品登记列表（最新在前）。分段读，避免单次超行数上限。"""
     out = []
-    for i, row in enumerate(vals, start=1):
-        row = list(row) + [""] * (12 - len(row))
-        if not any(_s(v) for v in row):
-            continue
-        fig = _s(row[3])
-        if not fig:
-            continue
-        out.append({"row": i, "date": _serial_to_date(row[0]), "spec": _s(row[2]),
-                    "fig": fig, "cust": _s(row[4]), "qty": _s(row[7]),
-                    "due": _serial_to_date(row[8]), "urgent": _s(row[9]) == "急",
-                    "special": _s(row[10]), "owner": _s(row[11]), "note": _s(row[12])})
+    start = 1
+    while start <= rows:
+        end = min(start + step - 1, rows)
+        vals = _values(SHEET_SAMPLE, start, end, "M")
+        if not vals:
+            break
+        for i, row in enumerate(vals, start=start):
+            row = list(row) + [""] * (13 - len(row))
+            if not any(_s(v) for v in row):
+                continue
+            fig = _s(row[3])
+            if not fig:
+                continue
+            out.append({"row": i, "date": _serial_to_date(row[0]), "spec": _s(row[2]),
+                        "fig": fig, "cust": _s(row[4]), "qty": _s(row[7]),
+                        "due": _serial_to_date(row[8]), "urgent": _s(row[9]) == "急",
+                        "special": _s(row[10]), "owner": _s(row[11]), "note": _s(row[12])})
+        if len(vals) < step:
+            break
+        start = end + 1
     out.reverse()
     return out
 
@@ -221,19 +233,27 @@ _PROG = {"map": {}, "loaded": 0.0}
 
 
 def progress_map(refresh=False):
-    """工序进度：图号 → {row, st}"""
+    """工序进度：图号 → {row, st}（分段读）"""
     if _PROG["map"] and not refresh and time.time() - _PROG["loaded"] < 300:
         return _PROG["map"]
-    r = _api("GET", "/open-apis/sheets/v2/spreadsheets/%s/values/%s!A1:B13000"
-             % (SPREADSHEET, SHEET_PROGRESS))
-    vals = ((r.get("data") or {}).get("valueRange") or {}).get("values") or []
     m = {}
-    for i, row in enumerate(vals, start=1):
-        row = list(row) + ["", ""]
-        fig = _s(row[0])
-        if not fig:
-            continue
-        m[fig] = {"row": i, "raw": _s(row[1])}
+    start = 1
+    step = 2000
+    total = 14000
+    while start <= total:
+        end = min(start + step - 1, total)
+        vals = _values(SHEET_PROGRESS, start, end, "B")
+        if not vals:
+            break
+        for i, row in enumerate(vals, start=start):
+            row = list(row) + ["", ""]
+            fig = _s(row[0])
+            if not fig:
+                continue
+            m[fig] = {"row": i, "raw": _s(row[1])}
+        if len(vals) < step:
+            break
+        start = end + 1
     _PROG["map"] = m
     _PROG["loaded"] = time.time()
     return m
