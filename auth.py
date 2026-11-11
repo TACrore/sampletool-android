@@ -63,3 +63,60 @@ def exchange_code(code, data):
     except Exception:
         pass
     return tok.get("name", "")
+
+
+_CALLBACK = {"srv": None}
+
+
+def start_callback(on_code, port=8765):
+    """在本机 127.0.0.1:port 起回调监听；收到 code 自动回调 on_code(code)。
+    手机/电脑上浏览器跳转 localhost 时，如果 App 在跑，可全自动完成，不用复制。"""
+    import http.server
+    import threading
+
+    class H(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+            code = (q.get("code") or [""])[0]
+            body = ("<html><body style='font:16px sans-serif;padding:24px'>" +
+                    ("授权成功，可关闭本页，回到程序。" if code else "授权失败或已取消。") +
+                    "</body></html>").encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            if code:
+                try:
+                    on_code(code)
+                except Exception:
+                    pass
+
+        def log_message(self, *a):
+            pass
+
+    try:
+        srv = http.server.HTTPServer(("127.0.0.1", port), H)
+        srv.timeout = 1
+        _CALLBACK["srv"] = srv
+
+        def loop():
+            while _CALLBACK.get("srv") is srv:
+                try:
+                    srv.handle_request()
+                except Exception:
+                    break
+
+        threading.Thread(target=loop, daemon=True).start()
+        return True
+    except Exception:
+        return False
+
+
+def stop_callback():
+    srv = _CALLBACK.get("srv")
+    _CALLBACK["srv"] = None
+    try:
+        srv and srv.server_close()
+    except Exception:
+        pass
