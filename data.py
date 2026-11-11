@@ -475,3 +475,117 @@ def repair_progress_rows():
         _PROG["map"] = {}
         _PROG["loaded"] = 0.0
     return fixed
+
+
+SAMPLE_COLS = {"cust": "E", "fig": "D", "spec": "C", "qty": "H", "due": "I",
+               "owner": "L", "special": "K", "note": "M", "date": "A", "actual": "N"}
+
+
+def col_letter(idx):
+    s = ""
+    idx += 1
+    while idx:
+        idx, r = divmod(idx - 1, 26)
+        s = chr(65 + r) + s
+    return s
+
+
+def _put_cell(sheet_id, row, col, value):
+    _api("PUT", "/open-apis/sheets/v2/spreadsheets/%s/values" % SPREADSHEET,
+         {"valueRange": {"range": "%s!%s%d:%s%d" % (sheet_id, col, row, col, row),
+                         "values": [[value]]}})
+
+
+def update_sample(row, changes):
+    """changes: {字段: 值}；due/date 自动转成序列号。写回并记一条变更。"""
+    detail = []
+    for key, val in changes.items():
+        col = SAMPLE_COLS.get(key)
+        if not col:
+            continue
+        v = val
+        if key in ("due", "date"):
+            v = _date_serial(val) if val else ""
+        if key == "qty":
+            try:
+                v = int(float(val)) if str(val).strip() else ""
+            except Exception:
+                v = val
+        _put_cell(SHEET_SAMPLE, row, col, v)
+        detail.append("%s=%s" % (key, val))
+    if detail:
+        append_change("", row, changes.get("fig", ""), "修改", "；".join(detail))
+    return True
+
+
+def set_step_name(row, idx, name):
+    _put_cell(SHEET_SAMPLE, row, col_letter(14 + idx), name or "")
+    return True
+
+
+def append_change(who, row_no, fig, kind, detail):
+    sid = sheet_id_by_title("变更记录")
+    if not sid:
+        return False
+    try:
+        r = _api("GET", "/open-apis/sheets/v2/spreadsheets/%s/values/%s!A1:A5000"
+                 % (SPREADSHEET, sid))
+        vals = ((r.get("data") or {}).get("valueRange") or {}).get("values") or []
+        last = 1
+        for i, v in enumerate(vals, start=1):
+            if v and str(v[0] or "").strip():
+                last = i
+        when = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+        if not who:
+            who = _load_token().get("name") or "手机端"
+        _api("PUT", "/open-apis/sheets/v2/spreadsheets/%s/values" % SPREADSHEET,
+             {"valueRange": {"range": "%s!A%d:F%d" % (sid, last + 1, last + 1),
+                             "values": [[when, who, str(row_no), str(fig),
+                                         str(kind), str(detail)[:400]]]}})
+        return True
+    except Exception:
+        return False
+
+
+def save_step(fig, row, names, idx, name, plan, actual, done):
+    """保存一道工序：名字写回样品记录，状态写回工序进度。"""
+    if name is not None and row:
+        try:
+            set_step_name(row, idx, name)
+        except Exception:
+            pass
+    st = progress_get(fig, names)
+    if name is not None:
+        st["names"][idx] = name
+    st["plan"][idx] = plan or ""
+    st["actual"][idx] = actual or ""
+    st["done"][idx] = bool(done)
+    progress_save(fig, st)
+    return st
+
+
+def complete_all(fig, names, row=None):
+    st = progress_get(fig, names)
+    today = datetime.date.today().strftime("%Y-%m-%d")
+    for i in range(STEPS):
+        if (st["names"][i] or "").strip():
+            st["done"][i] = True
+            if not st["actual"][i]:
+                st["actual"][i] = today
+            if not st["plan"][i]:
+                st["plan"][i] = (datetime.date.today() +
+                                 datetime.timedelta(days=7)).strftime("%Y-%m-%d")
+    progress_save(fig, st)
+    return st
+
+
+def set_sample_status(fig, row, status, reason=""):
+    """status: '' / 'pause' / 'abort'"""
+    st = progress_get(fig)
+    st["status"] = status
+    st["reason"] = reason
+    progress_save(fig, st)
+    if status:
+        label = {"pause": "生产暂停", "abort": "生产中止"}.get(status, status)
+        append_change("", row or 0, fig, label, reason)
+    return st
