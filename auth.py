@@ -21,14 +21,10 @@ def load_app_conf():
 def auth_url():
     c = load_app_conf()
     q = urllib.parse.urlencode({
-        "client_id": c.get("app_id", ""),
+        "app_id": c.get("app_id", ""),
         "redirect_uri": c.get("redirect_uri", ""),
         "response_type": "code",
-        "scope": " ".join([
-            "sheets:spreadsheet",
-            "bitable:app",
-            "offline_access",
-        ]),
+        "scope": "sheets:spreadsheet offline_access",
         "state": "sample",
     })
     return API + "/open-apis/authen/v1/authorize?" + q
