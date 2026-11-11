@@ -4,6 +4,8 @@
 风格：蓝色顶栏 / 白卡片 / 灰底；登记列表两行：图号+规格，日期+客户+数量+担当。
 """
 import datetime
+import os
+import sys
 import threading
 import webbrowser
 
@@ -27,7 +29,15 @@ from kivy.uix.screenmanager import Screen, ScreenManager, SlideTransition
 from kivy.uix.textinput import TextInput
 from kivy.uix.widget import Widget
 
-APP_VERSION = "1.3.3"
+APP_VERSION = "1.3.9"
+try:
+    _base = (os.path.dirname(sys.executable) if getattr(sys, "frozen", False)
+             else os.path.dirname(os.path.abspath(__file__)))
+    _vo = os.path.join(_base, "version_override.txt")
+    if os.path.exists(_vo):
+        APP_VERSION = open(_vo, encoding="utf-8").read().strip() or APP_VERSION
+except Exception:
+    pass
 FONT = fontutil.font_path()
 
 BLUE = (0.184, 0.435, 0.922, 1)
@@ -248,7 +258,7 @@ class LoginScreen(Screen):
         if not code:
             return
         self.code.text = code
-        self.tip.text = "已自动收到授权码，正在登录…"
+        self.tip.text = "已自动收到授权码，正在登录..."
         self.do_login()
 
     def open_url(self):
@@ -263,7 +273,7 @@ class LoginScreen(Screen):
         self.tip.text = "已打开授权页；同意后自动登录（收不到就粘贴回调地址）"
 
     def do_login(self):
-        self.tip.text = "登录中…"
+        self.tip.text = "登录中..."
 
         def done(_res, err):
             if err:
@@ -327,34 +337,72 @@ class HomeScreen(Screen):
             if data.ver_tuple(latest) <= data.ver_tuple(APP_VERSION):
                 toast("已是最新版本 V%s" % APP_VERSION, "检查更新")
                 return
-
-            def yes():
-                tip = dialog.info("正在下载 V%s，请稍候…（约 30MB）" % latest)
-
-                def dl():
-                    out = os.path.join(data._data_dir(), "update-%s.apk" % latest)
-                    data.download_release(res["file_token"], out)
-                    return out
-
-                def got(path, err2):
-                    try:
-                        tip.dismiss()
-                    except Exception:
-                        pass
-                    if err2:
-                        toast("下载失败：" + err2)
-                        return
-                    if install_apk(path):
-                        toast("已调起安装，按提示覆盖安装即可")
-                    else:
-                        toast("安装包已下载：" + path)
-
-                bg(dl, got)
-
             dialog.confirm("发现新版本 V%s（当前 V%s）\n下载并安装？" % (latest, APP_VERSION),
-                           yes, "检查更新", "下载安装")
+                           lambda: self._start_update(latest, res), "检查更新", "下载安装")
 
         bg(work, done)
+
+    def _start_update(self, latest, res):
+        sh = dialog.Sheet("更新 V%s" % latest, height=0.5)
+        info = dialog.lab("准备下载...", 13, dialog.INK)
+        sh.body.add_widget(info)
+        sh.body.add_widget(dialog.lab("", 4, dialog.MUTED, height=dp(6)))
+        sh.body.add_widget(dialog.btn("关闭", lambda *_: sh.dismiss(), color=dialog.GREY,
+                                      text_color=dialog.INK, height=42))
+        sh.open()
+
+        def set_text(txt, color=dialog.INK):
+            def _u(*_):
+                info.text = txt
+                info.color = color
+            Clock.schedule_once(_u, 0)
+
+        def prog(nbytes):
+            set_text("下载中... %.1f MB" % (nbytes / 1048576.0))
+
+        def dl():
+            out = os.path.join(data._data_dir(), "update-%s.apk" % latest)
+            data.download_release(res["file_token"], out, on_progress=prog)
+            return out
+
+        def after_dl(path, e2):
+            if e2:
+                set_text("下载失败：" + e2, dialog.RED)
+                _write_result(latest, "下载失败：" + e2)
+                return
+            mb = os.path.getsize(path) / 1048576.0
+            set_text("下载完成 %.1f MB，校验中..." % mb)
+            want = (res.get("sha256") or "").lower()
+            try:
+                import hashlib
+                h = hashlib.sha256()
+                with open(path, "rb") as f:
+                    for chunk in iter(lambda: f.read(1 << 20), b""):
+                        h.update(chunk)
+                got = h.hexdigest()
+            except Exception as e:
+                set_text("校验异常：" + str(e)[:60], dialog.RED)
+                return
+            if want and got != want:
+                set_text("SHA256 不一致，已中止（请重试）", dialog.RED)
+                _write_result(latest, "SHA256 不一致")
+                return
+            set_text("SHA256 校验通过 %.1f MB\n正在打开安装器..." % mb)
+
+            def inst():
+                return install_apk(path)
+
+            def after_inst(ok, e3):
+                if ok:
+                    set_text("已调起系统安装器\n装完版本会变成 V%s\n安装包：%s" % (latest, path))
+                    _write_result(latest, "已调起安装器")
+                else:
+                    set_text("本机无法直接安装（Windows 属正常）\n安装包：%s" % path)
+                    _write_result(latest, "已下载，需手动安装")
+
+            bg(inst, after_inst)
+
+        bg(dl, after_dl)
 
 class SampleRow(BoxLayout):
     """一条登记记录（白卡片，两行信息）"""
@@ -433,9 +481,9 @@ class SampleScreen(Screen):
             self.reload()
 
     def reload(self):
-        self.count.text = "加载中…"
+        self.count.text = "加载中..."
         self.list.clear_widgets()
-        self.list.add_widget(lab("正在读取飞书表格…", 13, MUTED))
+        self.list.add_widget(lab("正在读取飞书表格...", 13, MUTED))
 
         def done(res, err):
             if err:
@@ -524,7 +572,7 @@ class DetailScreen(Screen):
 
     def load(self):
         self.grid.clear_widgets()
-        self.grid.add_widget(lab("读取工序进度…", 13, MUTED))
+        self.grid.add_widget(lab("读取工序进度...", 13, MUTED))
         fig = self.item["fig"]
 
         def done(res, err):
@@ -762,6 +810,16 @@ class EditScreen(Screen):
         bg(work, done)
 
 
+def _write_result(ver, text):
+    try:
+        import time as _t
+        with open(os.path.join(data._data_dir(), "update_result.txt"), "a",
+                  encoding="utf-8") as f:
+            f.write("%s  V%s  %s\n" % (_t.strftime("%Y-%m-%d %H:%M"), ver, text))
+    except Exception:
+        pass
+
+
 class StockScreen(Screen):
     def __init__(self, **kw):
         super().__init__(**kw)
@@ -791,7 +849,7 @@ class StockScreen(Screen):
 
     def search(self):
         self.list.clear_widgets()
-        self.list.add_widget(lab("查询中…", 13, MUTED))
+        self.list.add_widget(lab("查询中...", 13, MUTED))
 
         def done(res, err):
             self.list.clear_widgets()
