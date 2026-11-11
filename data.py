@@ -15,6 +15,7 @@ SHEET_PROGRESS = "4m1iVi"     # 工序进度（A=图号，B=JSON）
 BASE_APP = "UtX4b0Y2qadqzEsMXbAcaGfwnKg"
 BASE_TABLE = "tbli62aFhhiu866v"
 STEPS = 20
+HEADER_WORDS = ('图号', '图号规格', '规格', '客户编号', '接收日期', '需求数量', '客户担当者', '数量', '要求完成', '实际完成', '登记日期')
 DATA_DIR = ""
 
 
@@ -209,6 +210,8 @@ def load_samples(rows=20000, step=2000):
                 continue
             fig = _s(row[3])
             if not fig:
+                continue
+            if fig in HEADER_WORDS or _s(row[0]) in HEADER_WORDS or _s(row[2]) in HEADER_WORDS:
                 continue
             out.append({"row": i, "date": _serial_to_date(row[0]), "spec": _s(row[2]),
                         "fig": fig, "cust": _s(row[4]), "qty": _s(row[7]),
