@@ -1,49 +1,23 @@
 # -*- coding: utf-8 -*-
-"""Kivy 简易日期选择器（月历弹窗）"""
+"""日期选择器（浅色弹层，与主界面风格一致）"""
 import calendar
 import datetime
 
-from kivy.metrics import dp, sp
+from kivy.metrics import dp
 from kivy.uix.boxlayout import BoxLayout
-from kivy.uix.button import Button
 from kivy.uix.gridlayout import GridLayout
-from kivy.uix.label import Label
-from kivy.uix.popup import Popup
 
-import fontutil
+import dialog
 
-FONT = fontutil.font_path()
-BLUE = (0.184, 0.435, 0.922, 1)
-GREY = (0.945, 0.953, 0.969, 1)
-INK = (0.122, 0.165, 0.227, 1)
-MUTED = (0.42, 0.463, 0.525, 1)
+BLUE = dialog.BLUE
+GREY = dialog.GREY
+INK = dialog.INK
+MUTED = dialog.MUTED
 
 
-def _btn(text, cb, color=GREY, tc=INK, h=36, size=13):
-    b = Button(text=text, size_hint_y=None, height=dp(h), background_normal="",
-               background_color=color, color=tc, font_size=sp(size),
-               on_release=lambda *_: cb())
-    if FONT:
-        b.font_name = FONT
-    return b
-
-
-def _lab(text, size=13, color=INK, bold=False, halign="center"):
-    w = Label(text=text, font_size=sp(size), color=color, bold=bold, halign=halign,
-              valign="middle", size_hint_y=None, height=dp(22))
-    w.bind(size=lambda x, *_: setattr(x, "text_size", (x.width, None)))
-    if FONT:
-        w.font_name = FONT
-    return w
-
-
-class DatePicker(Popup):
-    """current: 'YYYY-MM-DD' 或空；on_pick(text)"""
-
+class DatePicker(dialog.Sheet):
     def __init__(self, current="", on_pick=None, **kw):
-        super().__init__(title="选择日期", size_hint=(0.92, 0.72), **kw)
-        if FONT:
-            self.title_font = FONT
+        super().__init__("选择日期", height=0.74, **kw)
         self.on_pick = on_pick
         today = datetime.date.today()
         try:
@@ -52,29 +26,28 @@ class DatePicker(Popup):
             y, m, d = today.year, today.month, today.day
         self.y, self.m = y, m
 
-        root = BoxLayout(orientation="vertical", padding=dp(8), spacing=dp(6))
         head = BoxLayout(size_hint_y=None, height=dp(38), spacing=dp(6))
-        head.add_widget(_btn("‹", lambda: self._shift(-1), size=18))
-        self.title_lab = _lab("", 15, INK, True)
+        head.add_widget(dialog.btn("‹", lambda: self._shift(-1), color=GREY,
+                                   text_color=INK, size=20))
+        self.title_lab = dialog.lab("", 15, INK, True, halign="center")
         head.add_widget(self.title_lab)
-        head.add_widget(_btn("›", lambda: self._shift(1), size=18))
-        root.add_widget(head)
+        head.add_widget(dialog.btn("›", lambda: self._shift(1), color=GREY,
+                                   text_color=INK, size=20))
+        self.body.add_widget(head)
 
-        wk = GridLayout(cols=7, size_hint_y=None, height=dp(24))
+        wk = GridLayout(cols=7, size_hint_y=None, height=dp(22))
         for n in ("一", "二", "三", "四", "五", "六", "日"):
-            wk.add_widget(_lab(n, 12, MUTED))
-        root.add_widget(wk)
+            wk.add_widget(dialog.lab(n, 12, MUTED, halign="center"))
+        self.body.add_widget(wk)
 
         self.grid = GridLayout(cols=7, spacing=dp(2))
-        root.add_widget(self.grid)
+        self.body.add_widget(self.grid)
 
-        foot = BoxLayout(size_hint_y=None, height=dp(44), spacing=dp(8))
-        foot.add_widget(_btn("今天", self._today, color=(0.216, 0.698, 0.302, 1),
-                             tc=(1, 1, 1, 1), h=40, size=14))
-        foot.add_widget(_btn("清空", lambda: self._pick(""), h=40, size=14))
-        foot.add_widget(_btn("取消", lambda: self.dismiss(), h=40, size=14))
-        root.add_widget(foot)
-        self.content = root
+        foot = BoxLayout(size_hint_y=None, height=dp(46), spacing=dp(8))
+        foot.add_widget(dialog.btn("今天", self._today, color=dialog.GREEN))
+        foot.add_widget(dialog.btn("清空", lambda: self._pick(""), color=GREY, text_color=INK))
+        foot.add_widget(dialog.btn("取消", lambda: self.dismiss(), color=GREY, text_color=INK))
+        self.body.add_widget(foot)
         self._render()
 
     def _shift(self, delta):
@@ -104,14 +77,11 @@ class DatePicker(Popup):
         today = datetime.date.today()
         for day in cal.itermonthdays(self.y, self.m):
             if day == 0:
-                self.grid.add_widget(_lab(""))
+                self.grid.add_widget(dialog.lab(""))
                 continue
             cur = datetime.date(self.y, self.m, day)
-            color = GREY
-            tc = INK
-            if cur == today:
-                color = BLUE
-                tc = (1, 1, 1, 1)
-            b = _btn(str(day), lambda d=cur: self._pick(d.strftime("%Y-%m-%d")),
-                     color=color, tc=tc, h=34, size=13)
+            is_today = (cur == today)
+            b = dialog.btn(str(day), lambda dd=cur: self._pick(dd.strftime("%Y-%m-%d")),
+                           color=BLUE if is_today else GREY,
+                           text_color=(1, 1, 1, 1) if is_today else INK, height=34, size=13)
             self.grid.add_widget(b)
