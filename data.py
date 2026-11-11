@@ -634,9 +634,10 @@ def ver_tuple(v):
     return tuple(out + [0] * (3 - len(out)))[:3]
 
 
-def download_release(file_token, dst):
+def download_release(file_token, dst, on_progress=None):
     tok = user_token()
     tokens = [t.strip() for t in str(file_token).split(",") if t.strip()]
+    done = 0
     with open(dst, "wb") as out:
         for tk in tokens:
             url = API + "/open-apis/drive/v1/files/%s/download" % tk
@@ -647,6 +648,12 @@ def download_release(file_token, dst):
                     if not b:
                         break
                     out.write(b)
+                    done += len(b)
+                    if on_progress:
+                        try:
+                            on_progress(done)
+                        except Exception:
+                            pass
     return dst
 
 
