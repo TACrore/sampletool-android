@@ -159,6 +159,28 @@ class TabBar(BoxLayout):
             b.bold = (n == name)
 
 
+
+
+def install_apk(path):
+    try:
+        from jnius import autoclass, cast
+        Intent = autoclass("android.content.Intent")
+        File = autoclass("java.io.File")
+        FileProvider = autoclass("androidx.core.content.FileProvider")
+        PythonActivity = autoclass("org.kivy.android.PythonActivity")
+        activity = PythonActivity.mActivity
+        uri = FileProvider.getUriForFile(activity.getPackageName() + ".fileprovider",
+                                         File(path))
+        intent = Intent(Intent.ACTION_VIEW)
+        intent.setDataAndType(cast("android.net.Uri", uri),
+                              "application/vnd.android.package-archive")
+        intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        activity.startActivity(intent)
+        return True
+    except Exception:
+        return False
+
 class RootApp(App):
     def build(self):
         Window.clearcolor = BG
@@ -275,20 +297,42 @@ class HomeScreen(Screen):
         self.manager.current = "login"
 
     def check_update(self):
+        def work():
+            return data.latest_release("android")
+
         def done(res, err):
             if err:
                 toast("检查失败：" + err)
                 return
-            latest = res or ""
-            try:
-                newer = latest and tuple(int(x) for x in latest.split(".")) > \
-                    tuple(int(x) for x in APP_VERSION.split("."))
-            except Exception:
-                newer = False
-            toast("已是最新版本 V%s" % APP_VERSION if not newer
-                  else "发现新版本 V%s\n请联系朱超获取安装包" % latest, "检查更新")
-        bg(data.latest_version, done)
+            if not res or not res.get("version"):
+                toast("已是最新版本 V%s" % APP_VERSION, "检查更新")
+                return
+            latest = res["version"]
+            if data.ver_tuple(latest) <= data.ver_tuple(APP_VERSION):
+                toast("已是最新版本 V%s" % APP_VERSION, "检查更新")
+                return
 
+            def yes():
+                def dl():
+                    out = os.path.join(data._data_dir(), "update-%s.apk" % latest)
+                    data.download_release(res["file_token"], out)
+                    return out
+
+                def got(path, err2):
+                    if err2:
+                        toast("下载失败：" + err2)
+                        return
+                    if install_apk(path):
+                        toast("已调起安装，按提示覆盖安装即可")
+                    else:
+                        toast("安装包已下载：" + path)
+
+                bg(dl, got)
+
+            dialog.confirm("发现新版本 V%s（当前 V%s）\n下载并安装？" % (latest, APP_VERSION),
+                           yes, "检查更新", "下载安装")
+
+        bg(work, done)
 
 class SampleRow(BoxLayout):
     """一条登记记录（白卡片，两行信息）"""
