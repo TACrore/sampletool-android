@@ -200,11 +200,11 @@ def load_samples(rows=20000, step=2000):
     start = 1
     while start <= rows:
         end = min(start + step - 1, rows)
-        vals = _values(SHEET_SAMPLE, start, end, "M")
+        vals = _values(SHEET_SAMPLE, start, end, "AH")
         if not vals:
             break
         for i, row in enumerate(vals, start=start):
-            row = list(row) + [""] * (13 - len(row))
+            row = list(row) + [""] * (34 - len(row))
             if not any(_s(v) for v in row):
                 continue
             fig = _s(row[3])
@@ -213,7 +213,8 @@ def load_samples(rows=20000, step=2000):
             out.append({"row": i, "date": _serial_to_date(row[0]), "spec": _s(row[2]),
                         "fig": fig, "cust": _s(row[4]), "qty": _s(row[7]),
                         "due": _serial_to_date(row[8]), "urgent": _s(row[9]) == "急",
-                        "special": _s(row[10]), "owner": _s(row[11]), "note": _s(row[12])})
+                        "special": _s(row[10]), "owner": _s(row[11]), "note": _s(row[12]),
+                        "names": [_s(row[14 + j]) for j in range(20)]})
         if len(vals) < step:
             break
         start = end + 1
@@ -259,19 +260,36 @@ def progress_map(refresh=False):
     return m
 
 
-def progress_get(fig):
+def progress_get(fig, names=None):
     it = progress_map().get(fig) or {}
-    st = {"done": [False] * STEPS, "names": [""] * STEPS, "plan": [""] * STEPS,
-          "actual": [""] * STEPS, "status": "", "reason": ""}
+    st = {"done": [False] * STEPS, "names": (list(names) if names else [""] * STEPS),
+          "plan": [""] * STEPS, "actual": [""] * STEPS, "status": "", "reason": ""}
+    while len(st["names"]) < STEPS:
+        st["names"].append("")
+    st["names"] = st["names"][:STEPS]
     raw = it.get("raw") or ""
     if raw:
         try:
             d = json.loads(raw)
-            for k in ("d", "n", "p", "a"):
-                ln = {"d": "done", "n": "names", "p": "plan", "a": "actual"}[k]
-                v = d.get(k) or ""
-                st[ln] = [v[j] == "1" if k == "d" else v[j] for j in range(min(STEPS, len(v)))]
-                st[ln] += [False if k == "d" else ""] * (STEPS - len(st[ln]))
+            ds = str(d.get("d") or "")
+            st["done"] = [ds[i] == "1" if i < len(ds) else False for i in range(STEPS)]
+            for k, target in (("p", "plan"), ("a", "actual"), ("n", "names")):
+                v = d.get(k)
+                if isinstance(v, dict):
+                    for i, val in v.items():
+                        try:
+                            j = int(i)
+                        except Exception:
+                            continue
+                        if 0 <= j < STEPS and val:
+                            st[target][j] = str(val)
+                elif isinstance(v, str) and v:
+                    # 旧版手机写的定长字符串（兼容修复）
+                    step = 10 if k in ("p", "a") else 6
+                    for j in range(min(STEPS, len(v) // step)):
+                        seg = v[j * step:(j + 1) * step].strip()
+                        if seg:
+                            st[target][j] = seg
             st["status"] = d.get("s") or ""
             st["reason"] = d.get("r") or ""
         except Exception:
@@ -280,12 +298,19 @@ def progress_get(fig):
 
 
 def _pack(st):
-    return json.dumps({"d": "".join("1" if x else "0" for x in st["done"]),
-                       "n": "".join(str(x or "")[:6].ljust(6)[:6] for x in st["names"]),
-                       "p": "".join(str(x or "")[:10].ljust(10)[:10] for x in st["plan"]),
-                       "a": "".join(str(x or "")[:10].ljust(10)[:10] for x in st["actual"]),
-                       "s": st.get("status") or "", "r": (st.get("reason") or "")[:40]},
-                      ensure_ascii=False, separators=(",", ":"))
+    d = {}
+    d["d"] = "".join("1" if x else "0" for x in st["done"])
+    for src, k in (("plan", "p"), ("actual", "a"), ("names", "n")):
+        m = {str(i): str(v) for i, v in enumerate(st.get(src) or []) if v}
+        if m:
+            d[k] = m
+    if st.get("status"):
+        d["s"] = st["status"]
+    if st.get("reason"):
+        d["r"] = (st["reason"] or "")[:40]
+    return json.dumps(d, ensure_ascii=False, separators=(",", ":"))
+
+
 
 
 def progress_save(fig, st):
@@ -305,8 +330,8 @@ def progress_save(fig, st):
     _PROG["loaded"] = time.time()
 
 
-def toggle_step(fig, i):
-    st = progress_get(fig)
+def toggle_step(fig, i, names=None):
+    st = progress_get(fig, names)
     st["done"][i] = not st["done"][i]
     today = datetime.date.today().strftime("%Y-%m-%d")
     if st["done"][i]:
@@ -398,3 +423,55 @@ def latest_version():
         if not best or key > tuple(int(x) for x in best.split(".")):
             best = v
     return best
+
+
+def repair_progress_rows():
+    """把旧版手机写的 p/a 字符串格式改回桌面端字典格式；返回修复行数。"""
+    fixed = 0
+    start = 1
+    step = 2000
+    total = 14000
+    base = "/open-apis/sheets/v2/spreadsheets/%s/values" % SPREADSHEET
+    while start <= total:
+        end = min(start + step - 1, total)
+        vals = _values(SHEET_PROGRESS, start, end, "B")
+        if not vals:
+            break
+        batch = []
+        for i, row in enumerate(vals, start=start):
+            raw = _s((list(row) + [""])[0])
+            if not raw.startswith("{"):
+                continue
+            try:
+                d = json.loads(raw)
+            except Exception:
+                continue
+            bad = False
+            for k, width in (("p", 10), ("a", 10), ("n", 6)):
+                v = d.get(k)
+                if isinstance(v, str):
+                    m = {}
+                    for j in range(min(STEPS, len(v) // width)):
+                        seg = v[j * width:(j + 1) * width].strip()
+                        if seg:
+                            m[str(j)] = seg
+                    if m:
+                        d[k] = m
+                    else:
+                        d.pop(k, None)
+                    bad = True
+            if bad:
+                batch.append([i, d])
+        for row_no, d in batch:
+            raw = json.dumps(d, ensure_ascii=False, separators=(",", ":"))
+            _api("PUT", base, {"valueRange": {
+                "range": "%s!B%d:B%d" % (SHEET_PROGRESS, row_no, row_no),
+                "values": [[raw]]}})
+            fixed += 1
+        if len(vals) < step:
+            break
+        start = end + 1
+    if fixed:
+        _PROG["map"] = {}
+        _PROG["loaded"] = 0.0
+    return fixed
