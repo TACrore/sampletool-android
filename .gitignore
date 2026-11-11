@@ -5,3 +5,4 @@ __pycache__/
 crash.log
 *.pyc
 token.json
+sy-cjk-full.ttf
