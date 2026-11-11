@@ -9,6 +9,7 @@ import webbrowser
 
 import auth
 import data
+import datepicker
 import fontutil
 from kivy.app import App
 from kivy.base import ExceptionHandler, ExceptionManager
@@ -89,7 +90,10 @@ def field(text="", size=13, color=INK, bold=False):
 
 
 def toast(msg, title="提示"):
-    Popup(title=title, content=lab(msg, 14), size_hint=(0.88, 0.34)).open()
+    p = Popup(title=title, content=lab(msg, 14), size_hint=(0.88, 0.34))
+    if FONT:
+        p.title_font = FONT
+    p.open()
 
 
 def bg(work, done):
@@ -166,6 +170,7 @@ class RootApp(App):
         sm.add_widget(HomeScreen(name="home"))
         sm.add_widget(SampleScreen(name="samples"))
         sm.add_widget(DetailScreen(name="detail"))
+        sm.add_widget(EditScreen(name="edit"))
         sm.add_widget(StockScreen(name="stock"))
         sm.add_widget(NewScreen(name="new"))
         sm.current = "home" if data._load_token().get("refresh_token") else "login"
@@ -382,6 +387,7 @@ class SampleScreen(Screen):
 
     def render(self):
         hits = data.search_samples(self.items, self.kw.text)
+        hits.sort(key=lambda x: (x.get("date") or "", x.get("row") or 0), reverse=True)
         self._hits = hits
         self.shown = 0
         self.count.text = "%d 条" % len(hits)
@@ -423,6 +429,10 @@ class DetailScreen(Screen):
                                 height=34, size=16))
         self.title = lab("", 16, INK, True)
         bar.add_widget(self.title)
+        bar.add_widget(flat_btn("编辑", self.open_edit, color=(0.90, 0.55, 0.15, 1),
+                                text_color=(1, 1, 1, 1), height=34))
+        bar.add_widget(flat_btn("全部完成", self.do_all_done, color=GREEN,
+                                text_color=(1, 1, 1, 1), height=34))
         root.add_widget(bar)
         self.info_card = card(padding=12, spacing=3)
         self.info = lab("", 12, MUTED, height=dp(52))
@@ -467,10 +477,50 @@ class DetailScreen(Screen):
                            background_color=GREEN if on else GREY,
                            color=(1, 1, 1, 1) if on else INK)
                 font(b)
-                b.bind(on_release=lambda *_, idx=i: self.toggle(idx))
+                b.bind(on_release=lambda *_, idx=i: self.edit_step(idx))
                 self.grid.add_widget(b)
 
         bg(lambda: data.progress_get(fig, self.item.get("names")), done)
+
+    def open_edit(self):
+        self.manager.get_screen("edit").show(self.item)
+        self.manager.current = "edit"
+
+    def do_all_done(self):
+        from kivy.uix.boxlayout import BoxLayout as _BL
+
+        def ok(*_):
+            pop.dismiss()
+
+            def work():
+                return data.complete_all(self.item["fig"], self.item.get("names"),
+                                         self.item.get("row"))
+
+            def done(res, err):
+                if err:
+                    toast("失败：" + err)
+                    return
+                self.load()
+
+            bg(work, done)
+
+        body = _BL(orientation="vertical", padding=dp(12), spacing=dp(10))
+        body.add_widget(lab("把这一行的所有工序都标记为已完成？", 14))
+        pop = Popup(title="确认", content=body, size_hint=(0.8, 0.3))
+        if FONT:
+            pop.title_font = FONT
+        row = _BL(size_hint_y=None, height=dp(44), spacing=dp(8))
+        row.add_widget(btn("取消", lambda *_: pop.dismiss(), color=GREY, text_color=INK))
+        row.add_widget(btn("确定", ok, color=GREEN))
+        body.add_widget(row)
+        pop.open()
+
+    def edit_step(self, i):
+        st = self._st
+        if not st:
+            return
+        self._step_pop = StepEdit(self.item, st, i, lambda: self.load())
+        self._step_pop.open()
 
     def toggle(self, i):
         def work():
@@ -481,6 +531,184 @@ class DetailScreen(Screen):
                 toast("保存失败：" + err)
                 return
             self.load()
+
+        bg(work, done)
+
+
+class StepEdit(Popup):
+    """单道工序编辑：名称 / 理论 / 实际 / 完成"""
+
+    def __init__(self, item, st, idx, on_saved, **kw):
+        super().__init__(title="工序 %d" % (idx + 1), size_hint=(0.94, 0.62), **kw)
+        self.item, self.st, self.idx, self.on_saved = item, st, idx, on_saved
+        if FONT:
+            self.title_font = FONT
+        root = BoxLayout(orientation="vertical", padding=dp(12), spacing=dp(6))
+        root.add_widget(lab("工序名称", 12, MUTED, height=dp(20)))
+        self.name = TextInput(text=(st["names"][idx] or ""), multiline=False,
+                              size_hint_y=None, height=dp(38), font_size=sp(14),
+                              padding=[dp(8), dp(10)])
+        font(self.name)
+        root.add_widget(self.name)
+
+        self.plan = Button(text="理论完成：" + (st["plan"][idx] or "未设置"), size_hint_y=None,
+                           height=dp(40), background_normal="", background_color=GREY,
+                           color=INK, font_size=sp(13))
+        font(self.plan)
+        self.plan.bind(on_release=lambda *_: self.pick("plan"))
+        root.add_widget(self.plan)
+
+        self.actual = Button(text="实际完成：" + (st["actual"][idx] or "未设置"),
+                             size_hint_y=None, height=dp(40), background_normal="",
+                             background_color=GREY, color=INK, font_size=sp(13))
+        font(self.actual)
+        self.actual.bind(on_release=lambda *_: self.pick("actual"))
+        root.add_widget(self.actual)
+
+        self.done_btn = Button(text="当前：已完成（点此取消）" if st["done"][idx]
+                               else "当前：未完成（点此点绿）",
+                               size_hint_y=None, height=dp(46), background_normal="",
+                               background_color=GREEN if st["done"][idx] else GREY,
+                               color=(1, 1, 1, 1) if st["done"][idx] else INK,
+                               font_size=sp(14))
+        font(self.done_btn)
+        self.done_btn.bind(on_release=lambda *_: self.toggle_done())
+        root.add_widget(self.done_btn)
+
+        foot = BoxLayout(size_hint_y=None, height=dp(46), spacing=dp(8))
+        foot.add_widget(btn("取消", lambda *_: self.dismiss(), color=GREY, text_color=INK))
+        foot.add_widget(btn("保存", self.save, color=BLUE))
+        root.add_widget(foot)
+        self.content = root
+
+    def pick(self, which):
+        cur = self.st[which][self.idx]
+
+        def on_pick(val):
+            self.st[which][self.idx] = val
+            b = self.plan if which == "plan" else self.actual
+            b.text = ("理论完成：" if which == "plan" else "实际完成：") + (val or "未设置")
+
+        datepicker.DatePicker(current=cur, on_pick=on_pick).open()
+
+    def toggle_done(self):
+        on = not self.st["done"][self.idx]
+        self.st["done"][self.idx] = on
+        self.done_btn.text = "当前：已完成（点此取消）" if on else "当前：未完成（点此点绿）"
+        self.done_btn.background_color = GREEN if on else GREY
+        self.done_btn.color = (1, 1, 1, 1) if on else INK
+
+    def save(self):
+        def work():
+            return data.save_step(self.item["fig"], self.item.get("row"),
+                                  self.item.get("names"), self.idx,
+                                  self.name.text.strip(), self.st["plan"][self.idx],
+                                  self.st["actual"][self.idx], self.st["done"][self.idx])
+
+        def done(res, err):
+            if err:
+                toast("保存失败：" + err)
+                return
+            self.dismiss()
+            self.on_saved()
+
+        bg(work, done)
+
+
+class EditScreen(Screen):
+    """修改登记信息"""
+
+    FIELDS = [("fig", "图号"), ("spec", "规格"), ("cust", "客户编号"), ("qty", "数量"),
+              ("owner", "担当"), ("special", "特殊要求"), ("note", "备注")]
+
+    def __init__(self, **kw):
+        super().__init__(**kw)
+        self.item = None
+        self.inputs = {}
+        root = BoxLayout(orientation="vertical")
+        root.add_widget(Header("编辑登记", ""))
+        bar = BoxLayout(size_hint_y=None, height=dp(46), padding=[dp(8), dp(6)], spacing=dp(6))
+        bar.add_widget(flat_btn("←", lambda: setattr(self.manager, "current", "detail"),
+                                height=34, size=16))
+        bar.add_widget(lab("改完点「保存」，会写回飞书并留变更记录", 12, MUTED))
+        root.add_widget(bar)
+        scroll = ScrollView(bar_width=dp(3))
+        form = GridLayout(cols=1, spacing=dp(4), size_hint_y=None, padding=[dp(12), dp(6)])
+        form.bind(minimum_height=form.setter("height"))
+        for key, label in self.FIELDS:
+            form.add_widget(lab(label, 12, MUTED, height=dp(20)))
+            t = TextInput(multiline=(key == "note"), size_hint_y=None,
+                          height=dp(38) if key != "note" else dp(64), font_size=sp(13),
+                          padding=[dp(8), dp(10)])
+            font(t)
+            self.inputs[key] = t
+            form.add_widget(t)
+        for key, label in (("due", "要求完成日期"), ("date", "接收日期"), ("actual", "实际完成日期")):
+            form.add_widget(lab(label, 12, MUTED, height=dp(20)))
+            b = Button(text="未设置", size_hint_y=None, height=dp(38), background_normal="",
+                       background_color=GREY, color=INK, font_size=sp(13))
+            font(b)
+            b.bind(on_release=lambda *_, k=key: self.pick(k))
+            self.inputs[key] = b
+            form.add_widget(b)
+        scroll.add_widget(form)
+        root.add_widget(scroll)
+        foot = BoxLayout(size_hint_y=None, height=dp(58), padding=[dp(12), dp(8)])
+        foot.add_widget(btn("保存", self.save, color=GREEN, height=44, size=15))
+        root.add_widget(foot)
+        self.add_widget(root)
+
+    def show(self, it):
+        self.item = it
+        for key, widget in self.inputs.items():
+            val = {"due": it.get("due"), "date": it.get("date"), "actual": it.get("actual")}
+            if key in val:
+                widget.text = ("%s：%s" % ("", val[key] or "未设置")).strip()
+                widget.text = ("日期：" + (val[key] or "未设置"))
+            else:
+                widget.text = it.get(key, "") or ""
+
+    def pick(self, key):
+        cur = ""
+        txt = self.inputs[key].text
+        if "：" in txt:
+            cur = txt.split("：", 1)[1]
+        if cur in ("未设置", "日期"):
+            cur = ""
+
+        def on_pick(val):
+            self.inputs[key].text = "日期：" + (val or "未设置")
+
+        datepicker.DatePicker(current=cur, on_pick=on_pick).open()
+
+    def save(self):
+        changes = {}
+        for key, widget in self.inputs.items():
+            if key in ("due", "date", "actual"):
+                val = widget.text.split("：", 1)[-1]
+                val = "" if val in ("未设置", "日期") else val
+                orig = {"due": self.item.get("due"), "date": self.item.get("date"),
+                        "actual": self.item.get("actual")}[key]
+                if (val or "") != (orig or ""):
+                    changes[key] = val
+            else:
+                val = widget.text.strip()
+                if val != (self.item.get(key, "") or ""):
+                    changes[key] = val
+        if not changes:
+            toast("没有改动")
+            return
+
+        def work():
+            return data.update_sample(self.item["row"], changes)
+
+        def done(res, err):
+            if err:
+                toast("保存失败：" + err)
+                return
+            toast("已保存")
+            self.manager.get_screen("samples").items = []
+            self.manager.current = "samples"
 
         bg(work, done)
 
@@ -555,11 +783,20 @@ class NewScreen(Screen):
         form = GridLayout(cols=1, spacing=dp(4), size_hint_y=None, padding=[dp(12), dp(6)])
         form.bind(minimum_height=form.setter("height"))
         today = datetime.date.today().strftime("%Y-%m-%d")
+        self.dates = {"due": today, "date": today}
         for key, label in self.FIELDS:
             form.add_widget(lab(label, 12, MUTED, height=dp(20)))
-            t = TextInput(text=today if key in ("due", "date") else "", multiline=False,
-                          size_hint_y=None, height=dp(38), font_size=sp(13),
-                          padding=[dp(8), dp(10)])
+            if key in ("due", "date"):
+                b = Button(text="日期：" + today, size_hint_y=None, height=dp(38),
+                           background_normal="", background_color=GREY, color=INK,
+                           font_size=sp(13))
+                font(b)
+                b.bind(on_release=lambda *_, k=key: self.pick(k))
+                form.add_widget(b)
+                self.inputs[key] = b
+                continue
+            t = TextInput(multiline=False, size_hint_y=None, height=dp(38),
+                          font_size=sp(13), padding=[dp(8), dp(10)])
             font(t)
             self.inputs[key] = t
             form.add_widget(t)
@@ -570,8 +807,22 @@ class NewScreen(Screen):
         root.add_widget(foot)
         self.add_widget(root)
 
+    def pick(self, key):
+        cur = self.dates.get(key) or ""
+
+        def on_pick(val):
+            self.dates[key] = val
+            self.inputs[key].text = "日期：" + (val or "未设置")
+
+        datepicker.DatePicker(current=cur, on_pick=on_pick).open()
+
     def submit(self):
-        d = {k: v.text.strip() for k, v in self.inputs.items()}
+        d = {}
+        for k, v in self.inputs.items():
+            if k in ("due", "date"):
+                d[k] = self.dates.get(k) or ""
+            else:
+                d[k] = v.text.strip()
         if not d.get("fig"):
             toast("图号必填")
             return
