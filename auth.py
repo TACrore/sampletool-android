@@ -24,7 +24,7 @@ def auth_url():
         "app_id": c.get("app_id", ""),
         "redirect_uri": c.get("redirect_uri", ""),
         "response_type": "code",
-        "scope": "sheets:spreadsheet offline_access",
+        "scope": "drive:drive sheets:spreadsheet offline_access",
         "state": "sample",
     })
     return API + "/open-apis/authen/v1/authorize?" + q
