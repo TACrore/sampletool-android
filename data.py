@@ -636,12 +636,17 @@ def ver_tuple(v):
 
 def download_release(file_token, dst):
     tok = user_token()
-    url = API + "/open-apis/drive/v1/files/%s/download" % file_token
-    req = urllib.request.Request(url, headers={"Authorization": "Bearer " + tok})
-    with urllib.request.urlopen(req, timeout=900) as r, open(dst, "wb") as f:
-        while True:
-            b = r.read(1 << 20)
-            if not b:
-                break
-            f.write(b)
+    tokens = [t.strip() for t in str(file_token).split(",") if t.strip()]
+    with open(dst, "wb") as out:
+        for tk in tokens:
+            url = API + "/open-apis/drive/v1/files/%s/download" % tk
+            req = urllib.request.Request(url, headers={"Authorization": "Bearer " + tok})
+            with urllib.request.urlopen(req, timeout=900) as r:
+                while True:
+                    b = r.read(1 << 20)
+                    if not b:
+                        break
+                    out.write(b)
     return dst
+
+
