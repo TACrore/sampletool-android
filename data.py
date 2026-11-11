@@ -597,3 +597,51 @@ def set_sample_status(fig, row, status, reason=""):
         label = {"pause": "生产暂停", "abort": "生产中止"}.get(status, status)
         append_change("", row or 0, fig, label, reason)
     return st
+
+
+def latest_release(platform="android"):
+    """读「更新记录」里该平台最新一版；返回 {version, file_token, sha256} 或 None。"""
+    sid = sheet_id_by_title("更新记录")
+    if not sid:
+        return None
+    r = _api("GET", "/open-apis/sheets/v2/spreadsheets/%s/values/%s!A2:I100"
+             % (SPREADSHEET, sid))
+    vals = ((r.get("data") or {}).get("valueRange") or {}).get("values") or []
+    best = None
+    for row in vals:
+        row = list(row) + [""] * (9 - len(row))
+        ver = _s(row[0])
+        plat = _s(row[6]) or "win"
+        if not ver or plat != platform:
+            continue
+        item = {"version": ver, "sha256": _s(row[1]), "file_token": _s(row[8]),
+                "type": _s(row[7]) or "sheet"}
+        if best is None or ver_tuple(ver) > ver_tuple(best["version"]):
+            best = item
+    return best
+
+
+def ver_tuple(v):
+    out = []
+    for part in str(v or "").replace("-", ".").split("."):
+        num = ""
+        for ch in part:
+            if ch.isdigit():
+                num += ch
+            else:
+                break
+        out.append(int(num or 0))
+    return tuple(out + [0] * (3 - len(out)))[:3]
+
+
+def download_release(file_token, dst):
+    tok = user_token()
+    url = API + "/open-apis/drive/v1/files/%s/download" % file_token
+    req = urllib.request.Request(url, headers={"Authorization": "Bearer " + tok})
+    with urllib.request.urlopen(req, timeout=900) as r, open(dst, "wb") as f:
+        while True:
+            b = r.read(1 << 20)
+            if not b:
+                break
+            f.write(b)
+    return dst
