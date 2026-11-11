@@ -2,7 +2,7 @@
 title = 样品查询管理工具
 package.name = sampletool
 package.domain = cn.wzshenyi
-version = 1.3.3
+version = 1.3.4
 icon.filename = icon.png
 source.dir = .
 source.include_exts = py,png,jpg,jpeg,ttf,json
@@ -13,7 +13,7 @@ requirements = python3,kivy==2.3.1,certifi
 orientation = portrait
 fullscreen = 0
 
-android.permissions = INTERNET
+android.permissions = INTERNET,REQUEST_INSTALL_PACKAGES
 android.api = 33
 android.minapi = 24
 android.ndk_api = 24
