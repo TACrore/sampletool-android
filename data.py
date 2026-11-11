@@ -72,17 +72,57 @@ def _save_token(t):
         pass
 
 
+_CA_CTX = {"v": None}
+
+
+def _ssl_ctx(verify=True):
+    import ssl
+    if not verify:
+        return ssl._create_unverified_context()
+    if _CA_CTX["v"] is not None:
+        return _CA_CTX["v"]
+    cafile = None
+    try:
+        import certifi
+        cafile = certifi.where()
+    except Exception:
+        cafile = None
+    try:
+        ctx = ssl.create_default_context(cafile=cafile) if cafile else ssl.create_default_context()
+    except Exception:
+        ctx = ssl.create_default_context()
+    _CA_CTX["v"] = ctx
+    return ctx
+
+
+def _open(req, timeout, verify=True):
+    """带 CA 证书链的请求；证书校验失败再降级一次（企业网 TLS 拦截场景）。"""
+    import ssl
+    try:
+        opener = urllib.request.build_opener(urllib.request.HTTPSHandler(context=_ssl_ctx(verify)))
+        return opener.open(req, timeout=timeout)
+    except urllib.error.HTTPError:
+        raise
+    except urllib.error.URLError as e:
+        reason = str(getattr(e, "reason", e))
+        if verify and ("CERTIFICATE" in reason.upper() or "SSL" in reason.upper()):
+            log_crash("tls", "verify failed, retry unverified: " + reason[:200])
+            opener = urllib.request.build_opener(
+                urllib.request.HTTPSHandler(context=_ssl_ctx(False)))
+            return opener.open(req, timeout=timeout)
+        raise
+
+
 def _http(method, path, payload=None, token=None, timeout=45):
-    url = API + path
     data = None
     hdr = {"Content-Type": "application/json; charset=utf-8"}
     if token:
         hdr["Authorization"] = "Bearer " + token
     if payload is not None:
         data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
-    req = urllib.request.Request(url, data=data, headers=hdr, method=method)
+    req = urllib.request.Request(API + path, data=data, headers=hdr, method=method)
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
+        with _open(req, timeout) as resp:
             return json.loads(resp.read().decode("utf-8"))
     except urllib.error.HTTPError as e:
         body = e.read().decode("utf-8", "ignore")
@@ -90,6 +130,8 @@ def _http(method, path, payload=None, token=None, timeout=45):
             return json.loads(body)
         except Exception:
             return {"code": e.code, "msg": body[:200]}
+    except urllib.error.URLError as e:
+        raise RuntimeError("网络错误：" + str(getattr(e, "reason", e))[:160])
 
 
 def user_token():
