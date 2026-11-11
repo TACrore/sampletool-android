@@ -84,7 +84,9 @@ class LoginScreen(Screen):
         root = BoxLayout(orientation="vertical", padding=dp(16), spacing=dp(10))
         root.add_widget(mk_label("样品查询管理工具", size=dp(24), bold=True,
                                  color=(0.16, 0.40, 0.85, 1)))
-        root.add_widget(mk_label("首次使用：点「打开授权页」→ 飞书点同意 → 复制跳转后地址栏的整段网址 → 粘贴回来"))
+        root.add_widget(mk_label("点「打开授权页」→ 飞书点同意。\n"
+                                 "浏览器若提示 localhost 打不开是正常的，程序会自动收到授权码；"
+                                 "收不到时把地址栏整段复制粘到下面"))
         self.url = mk_input("授权地址（自动生成）")
         self.url.readonly = True
         root.add_widget(self.url)
@@ -98,12 +100,23 @@ class LoginScreen(Screen):
         self.add_widget(root)
         self.url.text = auth.auth_url()
 
+    def _auto_code(self, code):
+        if not code:
+            return
+        self.code.text = code
+        self.tip.text = "已自动收到授权码，正在登录…"
+        self.do_login()
+
     def open_url(self):
+        try:
+            auth.start_callback(lambda c: Clock.schedule_once(lambda *_: self._auto_code(c), 0))
+        except Exception:
+            pass
         try:
             webbrowser.open(auth.auth_url())
         except Exception:
             pass
-        self.tip.text = "已在浏览器打开；如未弹出，长按地址框复制后手动打开"
+        self.tip.text = "已打开授权页；同意后回到本页会自动登录（也可手动粘贴回调地址）"
 
     def do_login(self):
         self.tip.text = "登录中…"
@@ -112,6 +125,10 @@ class LoginScreen(Screen):
             if err:
                 self.tip.text = "失败：" + err
                 return
+            try:
+                auth.stop_callback()
+            except Exception:
+                pass
             self.manager.current = "home"
 
         bg(lambda: auth.exchange_code(self.code.text, data), done)
