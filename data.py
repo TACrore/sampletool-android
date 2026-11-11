@@ -496,7 +496,12 @@ def _put_cell(sheet_id, row, col, value):
                          "values": [[value]]}})
 
 
-def update_sample(row, changes):
+FIELD_CN = {"cust": "客户编号", "fig": "图号", "spec": "规格", "qty": "数量",
+            "due": "要求完成", "owner": "担当", "special": "特殊要求",
+            "note": "备注", "date": "接收日期", "actual": "实际完成"}
+
+
+def update_sample(row, changes, fig=""):
     """changes: {字段: 值}；due/date 自动转成序列号。写回并记一条变更。"""
     detail = []
     for key, val in changes.items():
@@ -504,7 +509,7 @@ def update_sample(row, changes):
         if not col:
             continue
         v = val
-        if key in ("due", "date"):
+        if key in ("due", "date", "actual"):
             v = _date_serial(val) if val else ""
         if key == "qty":
             try:
@@ -512,9 +517,9 @@ def update_sample(row, changes):
             except Exception:
                 v = val
         _put_cell(SHEET_SAMPLE, row, col, v)
-        detail.append("%s=%s" % (key, val))
+        detail.append("%s：%s" % (FIELD_CN.get(key, key), val))
     if detail:
-        append_change("", row, changes.get("fig", ""), "修改", "；".join(detail))
+        append_change("", row, fig or changes.get("fig", ""), "修改", "；".join(detail))
     return True
 
 
