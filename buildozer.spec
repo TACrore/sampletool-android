@@ -2,7 +2,7 @@
 title = 样品查询管理工具
 package.name = sampletool
 package.domain = cn.wzshenyi
-version = 1.3.5
+version = 1.3.6
 icon.filename = icon.png
 source.dir = .
 source.include_exts = py,png,jpg,jpeg,ttf,json
