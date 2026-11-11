@@ -162,18 +162,34 @@ class TabBar(BoxLayout):
 
 
 def install_apk(path):
+    """先走 FileProvider，失败则关掉 StrictMode 用 file:// 兜底。"""
+    from jnius import autoclass, cast
+    Intent = autoclass("android.content.Intent")
+    File = autoclass("java.io.File")
+    PythonActivity = autoclass("org.kivy.android.PythonActivity")
+    activity = PythonActivity.mActivity
     try:
-        from jnius import autoclass, cast
-        Intent = autoclass("android.content.Intent")
-        File = autoclass("java.io.File")
+        Uri = autoclass("android.net.Uri")
         FileProvider = autoclass("androidx.core.content.FileProvider")
-        PythonActivity = autoclass("org.kivy.android.PythonActivity")
-        activity = PythonActivity.mActivity
         uri = FileProvider.getUriForFile(activity.getPackageName() + ".fileprovider",
                                          File(path))
         intent = Intent(Intent.ACTION_VIEW)
         intent.setDataAndType(cast("android.net.Uri", uri),
                               "application/vnd.android.package-archive")
+        intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        activity.startActivity(intent)
+        return True
+    except Exception:
+        pass
+    try:
+        StrictMode = autoclass("android.os.StrictMode")
+        builder = StrictMode.VmPolicy.Builder()
+        StrictMode.setVmPolicy(builder.build())
+        Uri = autoclass("android.net.Uri")
+        uri = Uri.fromFile(File(path))
+        intent = Intent(Intent.ACTION_VIEW)
+        intent.setDataAndType(uri, "application/vnd.android.package-archive")
         intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         activity.startActivity(intent)
@@ -313,12 +329,18 @@ class HomeScreen(Screen):
                 return
 
             def yes():
+                tip = dialog.info("正在下载 V%s，请稍候…（约 30MB）" % latest)
+
                 def dl():
                     out = os.path.join(data._data_dir(), "update-%s.apk" % latest)
                     data.download_release(res["file_token"], out)
                     return out
 
                 def got(path, err2):
+                    try:
+                        tip.dismiss()
+                    except Exception:
+                        pass
                     if err2:
                         toast("下载失败：" + err2)
                         return
