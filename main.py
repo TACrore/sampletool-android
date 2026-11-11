@@ -10,6 +10,7 @@ import webbrowser
 import auth
 import data
 import datepicker
+import dialog
 import fontutil
 from kivy.app import App
 from kivy.base import ExceptionHandler, ExceptionManager
@@ -90,10 +91,7 @@ def field(text="", size=13, color=INK, bold=False):
 
 
 def toast(msg, title="提示"):
-    p = Popup(title=title, content=lab(msg, 14), size_hint=(0.88, 0.34))
-    if FONT:
-        p.title_font = FONT
-    p.open()
+    dialog.info(msg, title)
 
 
 def bg(work, done):
@@ -487,11 +485,7 @@ class DetailScreen(Screen):
         self.manager.current = "edit"
 
     def do_all_done(self):
-        from kivy.uix.boxlayout import BoxLayout as _BL
-
-        def ok(*_):
-            pop.dismiss()
-
+        def yes():
             def work():
                 return data.complete_all(self.item["fig"], self.item.get("names"),
                                          self.item.get("row"))
@@ -504,16 +498,8 @@ class DetailScreen(Screen):
 
             bg(work, done)
 
-        body = _BL(orientation="vertical", padding=dp(12), spacing=dp(10))
-        body.add_widget(lab("把这一行的所有工序都标记为已完成？", 14))
-        pop = Popup(title="确认", content=body, size_hint=(0.8, 0.3))
-        if FONT:
-            pop.title_font = FONT
-        row = _BL(size_hint_y=None, height=dp(44), spacing=dp(8))
-        row.add_widget(btn("取消", lambda *_: pop.dismiss(), color=GREY, text_color=INK))
-        row.add_widget(btn("确定", ok, color=GREEN))
-        body.add_widget(row)
-        pop.open()
+        dialog.confirm("把这一行的所有工序都标记为已完成？", yes, "全部完成")
+
 
     def edit_step(self, i):
         st = self._st
@@ -535,35 +521,33 @@ class DetailScreen(Screen):
         bg(work, done)
 
 
-class StepEdit(Popup):
-    """单道工序编辑：名称 / 理论 / 实际 / 完成"""
+class StepEdit(dialog.Sheet):
+    """单道工序编辑：名称 / 理论 / 实际 / 完成（浅色弹层）"""
 
-    def __init__(self, item, st, idx, on_saved, **kw):
-        super().__init__(title="工序 %d" % (idx + 1), size_hint=(0.94, 0.62), **kw)
+    def __init__(self, item, st, idx, on_saved):
+        super().__init__("工序 %d" % (idx + 1), height=0.64)
         self.item, self.st, self.idx, self.on_saved = item, st, idx, on_saved
-        if FONT:
-            self.title_font = FONT
-        root = BoxLayout(orientation="vertical", padding=dp(12), spacing=dp(6))
-        root.add_widget(lab("工序名称", 12, MUTED, height=dp(20)))
+
+        self.body.add_widget(lab("工序名称", 12, MUTED, height=dp(20)))
         self.name = TextInput(text=(st["names"][idx] or ""), multiline=False,
                               size_hint_y=None, height=dp(38), font_size=sp(14),
                               padding=[dp(8), dp(10)])
         font(self.name)
-        root.add_widget(self.name)
+        self.body.add_widget(self.name)
 
         self.plan = Button(text="理论完成：" + (st["plan"][idx] or "未设置"), size_hint_y=None,
                            height=dp(40), background_normal="", background_color=GREY,
                            color=INK, font_size=sp(13))
         font(self.plan)
         self.plan.bind(on_release=lambda *_: self.pick("plan"))
-        root.add_widget(self.plan)
+        self.body.add_widget(self.plan)
 
         self.actual = Button(text="实际完成：" + (st["actual"][idx] or "未设置"),
                              size_hint_y=None, height=dp(40), background_normal="",
                              background_color=GREY, color=INK, font_size=sp(13))
         font(self.actual)
         self.actual.bind(on_release=lambda *_: self.pick("actual"))
-        root.add_widget(self.actual)
+        self.body.add_widget(self.actual)
 
         self.done_btn = Button(text="当前：已完成（点此取消）" if st["done"][idx]
                                else "当前：未完成（点此点绿）",
@@ -573,13 +557,12 @@ class StepEdit(Popup):
                                font_size=sp(14))
         font(self.done_btn)
         self.done_btn.bind(on_release=lambda *_: self.toggle_done())
-        root.add_widget(self.done_btn)
+        self.body.add_widget(self.done_btn)
 
         foot = BoxLayout(size_hint_y=None, height=dp(46), spacing=dp(8))
-        foot.add_widget(btn("取消", lambda *_: self.dismiss(), color=GREY, text_color=INK))
-        foot.add_widget(btn("保存", self.save, color=BLUE))
-        root.add_widget(foot)
-        self.content = root
+        foot.add_widget(dialog.btn("取消", lambda *_: self.dismiss(), color=GREY, text_color=INK))
+        foot.add_widget(dialog.btn("保存", self.save, color=dialog.BLUE))
+        self.body.add_widget(foot)
 
     def pick(self, which):
         cur = self.st[which][self.idx]
