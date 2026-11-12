@@ -67,7 +67,7 @@ jobs:
             echo "=== buildozer attempt $i ==="
             find .buildozer -name "*.tar.gz" -size -200k -delete 2>/dev/null || true
             find .buildozer -name ".mark-*" -delete 2>/dev/null || true
-            if buildozer -v android debug; then
+            if buildozer -v android release || buildozer -v android debug; then
               echo "attempt $i OK"
               break
             fi
@@ -82,7 +82,7 @@ jobs:
           set -e
           KS=keystores/release.keystore
           if [ ! -f "$KS" ]; then echo "missing keystore"; exit 1; fi
-          APK=$(ls bin/*.apk | head -1)
+          APK=$(ls -t bin/*.apk | head -1)
           BT=$(ls -d "$ANDROID_HOME"/build-tools/* 2>/dev/null | tail -1 || true)
           if [ -z "$BT" ]; then
             BT=$(ls -d "$HOME"/.buildozer/android/platform/android-sdk/build-tools/* | tail -1)
