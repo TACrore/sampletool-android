@@ -1,4 +1,4 @@
-﻿[app]
+[app]
 title = 样品查询管理工具
 package.name = sampletool
 package.domain = cn.wzshenyi
