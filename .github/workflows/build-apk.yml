@@ -48,11 +48,8 @@ jobs:
       - name: Pre-clone p4a and mirror openssl source
         run: |
           git clone --depth 1 https://github.com/kivy/python-for-android "$HOME/p4a"
-          sed -i "s#https://www.openssl.org/source/openssl-{version}.tar.gz#https://ghproxy.net/https://github.com/openssl/openssl/releases/download/openssl-{version}/openssl-{version}.tar.gz#" \
+          sed -i "s#https://www.openssl.org/source/openssl-{version}.tar.gz#https://github.com/openssl/openssl/releases/download/openssl-{version}/openssl-{version}.tar.gz#" \
             "$HOME/p4a/pythonforandroid/recipes/openssl/__init__.py"
-          grep -rl "https://github.com/" "$HOME/p4a/pythonforandroid/recipes" | while read -r f; do
-            sed -i '/ghproxy\.net/! s#https://github.com/\([^/]*/[^/]*\)/releases/download/#https://ghproxy.net/https://github.com/\1/releases/download/#g' "$f"
-          done
           grep -rl "md5sum" "$HOME/p4a/pythonforandroid/recipes" | while read -r f; do
             sed -i "/md5sum/d" "$f"
           done
