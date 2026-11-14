@@ -634,8 +634,33 @@ def ver_tuple(v):
     return tuple(out + [0] * (3 - len(out)))[:3]
 
 
+def _app_token():
+    """应用身份 token：更新包下载用（用户 token 没有 drive 权限）"""
+    conf = {}
+    try:
+        with open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                               "feishu.json"), encoding="utf-8-sig") as f:
+            conf = json.load(f) or {}
+    except Exception:
+        pass
+    body = json.dumps({"app_id": conf.get("app_id", ""),
+                       "app_secret": conf.get("app_secret", "")}).encode()
+    req = urllib.request.Request(
+        API + "/open-apis/auth/v3/tenant_access_token/internal",
+        data=body, method="POST", headers={"Content-Type": "application/json"})
+    with urllib.request.urlopen(req, timeout=30) as r:
+        d = json.loads(r.read().decode())
+    tok = d.get("tenant_access_token") or ""
+    if not tok:
+        raise RuntimeError("应用 token 失败：" + str(d.get("msg"))[:60])
+    return tok
+
+
 def download_release(file_token, dst, on_progress=None):
-    tok = user_token()
+    try:
+        tok = _app_token()
+    except Exception:
+        tok = user_token()
     tokens = [t.strip() for t in str(file_token).split(",") if t.strip()]
     done = 0
     with open(dst, "wb") as out:
