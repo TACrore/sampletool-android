@@ -207,11 +207,31 @@ def install_apk(path):
     except Exception:
         return False
 
+
+def make_splash(title):
+    """品牌蓝开屏：加载期间盖住默认灰底"""
+    from kivy.graphics import Color, Rectangle
+    from kivy.uix.floatlayout import FloatLayout as _FL
+    fl = _FL()
+    with fl.canvas.before:
+        Color(*BLUE)
+        rect = Rectangle(pos=fl.pos, size=fl.size)
+    fl.bind(pos=lambda *_: setattr(rect, "pos", fl.pos),
+            size=lambda *_: setattr(rect, "size", fl.size))
+    box = BoxLayout(orientation="vertical", padding=dp(28), spacing=dp(10))
+    box.add_widget(Widget())
+    box.add_widget(lab(title, 24, (1, 1, 1, 1), True))
+    box.add_widget(lab("正在加载…", 14, (1, 1, 1, 0.85)))
+    box.add_widget(Widget())
+    fl.add_widget(box)
+    return fl
+
+
 class RootApp(App):
     def build(self):
-        Window.clearcolor = BG
+        Window.clearcolor = BLUE          # 启动先品牌蓝，别露灰底
         self.title = "样品查询管理工具"
-        sm = ScreenManager(transition=SlideTransition(duration=0.12))
+        sm = ScreenManager()              # 首屏不放动画
         sm.add_widget(LoginScreen(name="login"))
         sm.add_widget(HomeScreen(name="home"))
         sm.add_widget(SampleScreen(name="samples"))
@@ -220,7 +240,15 @@ class RootApp(App):
         sm.add_widget(StockScreen(name="stock"))
         sm.add_widget(NewScreen(name="new"))
         sm.current = "home" if data._load_token().get("refresh_token") else "login"
-        return sm
+        sm.transition = SlideTransition(duration=0.12)
+        root = BoxLayout()
+        root.add_widget(sm)
+        splash = make_splash("样品查询管理工具")
+        root.add_widget(splash)
+        Clock.schedule_once(lambda *_: setattr(Window, "clearcolor", BG), 0.4)
+        Clock.schedule_once(lambda *_: (root.remove_widget(splash)
+                                        if splash.parent else None), 1.2)
+        return root
 
 
 class LoginScreen(Screen):
